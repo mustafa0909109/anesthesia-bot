@@ -1,5 +1,7 @@
 import io
 import os
+import threading
+from flask import Flask
 from google import genai
 from google.genai import types
 from pypdf import PdfReader
@@ -19,14 +21,23 @@ from telegram.ext import (
     filters,
 )
 
+# ================= خادم ويب وهمي لتفعيل الخطة المجانية =================
+web_app = Flask(__name__)
+
+@web_app.route("/")
+def home():
+    return "Bot is running online 24/7!"
+
+def run_web():
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host="0.0.0.0", port=port)
+
 # ================= الإعدادات والمفاتيح =================
 TELEGRAM_BOT_TOKEN = "7973450118:AAEvn8ub7AvSE_Swbl9mHn4vch4TmGLwXQE"
 GEMINI_API_KEY = "AQ.Ab8RN6L0UFIyPvdK3Kg0WlFj4qHBIk7II2IeBz57s0D91asZPg"
-ADMIN_ID = 0
 
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# نماذج Flash السريعة
 FAST_FREE_MODELS = [
     "gemini-3.6-flash",
     "gemini-3.5-flash",
@@ -34,20 +45,17 @@ FAST_FREE_MODELS = [
     "gemini-3-flash",
 ]
 
-# منع الترحيب المتكرر والدخول المباشر في الإجابة
 SYSTEM_INSTRUCTION = """
 أنت 'مساعد تقنيات التخدير والعناية المركزة الذكي'.
-تعليمات صارمة بخصوص الإخراج:
-1. ممنوع نهائياً كتابة أي مقدمات أو تحيات أو جمل تعريفية مثل: "أهلاً بك زميلي"، "بصفتي مساعدك"، "يسعدني مساعدتك"، "مرحباً".
+تعليمات صارمة:
+1. ممنوع نهائياً كتابة أي مقدمات أو تحيات أو جمل تعريفية.
 2. ادخل في صلب الجواب أو الأسئلة أو التلخيص مباشرة من أول كلمة.
 3. التزم بلغة الإخراج المحددة (إنجليزي فقط، أو إنجليزي متبوعاً بترجمة وشرح عربي).
 4. استخدم التنسيق الأكاديمي المرتب بالنقاط والعناوين الواضحة.
 """
 
 uploaded_docs = {}
-known_users = set()
 
-# أزرار التحكم الرئيسية الثابتة بالأسفل
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [
         [
@@ -65,7 +73,6 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True,
 )
-
 
 def generate_fast_ai_response(prompt: str) -> str:
     last_error = None
@@ -86,27 +93,20 @@ def generate_fast_ai_response(prompt: str) -> str:
             continue
     raise last_error
 
-
-# الترحيب يظهر هنا فقط لمرة واحدة عند الضغط على /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    known_users.add(user_id)
-
     welcome_text = (
-        "مرحباً بك زميلي الطالب في **مساعد تقنيات التخدير والعناية المركزة** 🩺💉\n\n"
+        "مرحباً بك في **مساعد تقنيات التخدير والعناية المركزة** 🩺💉\n\n"
         "1️⃣ ارفع أي ملزمة بصيغة PDF.\n"
         "2️⃣ اضغط على أي خيار بالأسفل (MCQ، تلخيص، Short Answer).\n"
-        "3️⃣ حدد لغة الجواب وسأجيبك فوراً وبشكل مباشر دون مقدمات."
+        "3️⃣ حدد لغة الجواب وسأجيبك فوراً وبشكل مباشر.\n\n"
+        "ــــــــــــــــــــــــــــــــــــــــ\n"
+        "✨ **تمت البرمجة والتطوير من قبل السيد**"
     )
     await update.message.reply_text(
         welcome_text, reply_markup=MAIN_KEYBOARD, parse_mode="Markdown"
     )
 
-
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    known_users.add(user_id)
-
     doc = update.message.document
     if not doc.file_name.lower().endswith(".pdf"):
         await update.message.reply_text(
@@ -137,7 +137,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await msg.edit_text(f"❌ تعذر قراءة الملف: {e}")
 
-
 def get_language_inline_keyboard(task_type: str):
     return InlineKeyboardMarkup(
         [
@@ -156,11 +155,7 @@ def get_language_inline_keyboard(task_type: str):
         ]
     )
 
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    known_users.add(user_id)
-
     user_query = update.message.text
     chat_id = update.effective_chat.id
     has_pdf = chat_id in uploaded_docs
@@ -183,7 +178,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "📌 **دليل الاستخدام:**\n\n"
             "1. ارفع ملف المحاضرة بصيغة PDF.\n"
             "2. اضغط على خيار (تلخيص / MCQ / Short Answer / أسئلة شاملة).\n"
-            "3. اختر لغة الجواب المطلوبة لتظهر لك النتيجة فوراً."
+            "3. اختر لغة الجواب المطلوبة لتظهر لك النتيجة فوراً.\n\n"
+            "ــــــــــــــــــــــــــــــــــــــــ\n"
+            "👨‍💻 **تمت البرمجة والتطوير من قبل السيد**"
         )
         await update.message.reply_text(
             help_msg, reply_markup=MAIN_KEYBOARD, parse_mode="Markdown"
@@ -215,7 +212,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # أسئلة يدوية حرة من الطالب
     context_text = uploaded_docs.get(chat_id, "")
     if context_text:
         prompt = f"الملزمة المرفوعة:\n{context_text}\n\nالسؤال: {user_query}\n(ادخل في الإجابة مباشرة دون أي مقدمات ترحيبية)"
@@ -230,7 +226,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"❌ حدث خطأ، يرجى المحاولة ثانية: {e}", reply_markup=MAIN_KEYBOARD
         )
-
 
 async def handle_language_choice(
     update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -280,8 +275,10 @@ async def handle_language_choice(
             reply_markup=MAIN_KEYBOARD,
         )
 
-
 def main():
+    # تشغيل خادم الويب في مسار مستقل ليتعرف Render على الخدمة المجانية
+    threading.Thread(target=run_web, daemon=True).start()
+
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -291,9 +288,8 @@ def main():
         MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message)
     )
 
-    print("🚀 البوت شغال الآن (الردود مباشرة بدون مقدمات ترحيبية)...")
+    print("🚀 البوت شغال ومجهز للسيرفر السحابي المجاني...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
